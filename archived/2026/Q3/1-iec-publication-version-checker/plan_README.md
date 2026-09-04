@@ -5,8 +5,8 @@ created: 2026-09-04
 type: LocalPlan
 upstream: issue #1
 branch: feat/1-iec-publication-version-checker
-shipped: false
-dev_merged: false
+shipped: true
+dev_merged: true
 ---
 
 # IEC 標準版本檢查工具
@@ -240,3 +240,4 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 - 2026-09-04：**port 兩處改號（Human 指定）** —— (a) 本 repo BASE 由表上佔位的 20000 改為 **21000**（feat port 隨之 20001 → **21001**）；(b) VPS docker publish port 由 20080 改為 **2000**。⛔ D7 的**綁定位址（`172.17.0.1`）與 IP 字面值 proxy_pass 的理由與結論一字未變**，只換數字。VPS `ss -tlnp` + 本機 `lsof` 實查 2000 / 21000 / 21001 皆空。`project_maker#375` 需同步改登錄值。（來源：Human 指示 2026-09-04）
 - 2026-09-04：**新增 D8**（兩顆按鈕：檢查只讀、建立／更新基準才寫）+ **D9**（差異表逐項攤開、不印 JSON）。D8 不只是 UI 拆分 —— 單顆按鈕會在偵測到更新後把基準覆寫掉、**自己抹掉警訊**；拆開後更新訊號留到人明示確認為止。status 由 4 值變 5 值、節流改 per-action。（來源：Human 指示 2026-09-04 + 看畫面回饋）
 - 2026-09-04：修節流快取 bug —— `no_baseline` 沒發出外部請求卻被快取，導致「建立基準後再按檢查仍回 no_baseline」。改為只快取真的抓過的結果，並補回歸測試。（來源：本機實測）
+- 2026-09-04：**shipped** —— Human 於 `https://smalldick.etbiss.com` UAT pass 並明示授權 close。（來源：Human 2026-09-04）
