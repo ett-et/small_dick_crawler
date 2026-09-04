@@ -1,0 +1,12 @@
+.git
+.gitignore
+tests
+active
+archived
+reviews
+deploy
+docs
+*.md
+__pycache__
+.pytest_cache
+.venv*/

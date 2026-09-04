@@ -1,0 +1,22 @@
+# 本機開發用。app port 依 issue_backlog_workflow.md R2：
+#   BASE 21000（small_dick_crawler，登錄追蹤於 project_maker#375）+ issue#1 → 21001
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smalldick_dev
+    environment:
+      SMALLDICK_DATA_DIR: /data
+      SMALLDICK_THROTTLE_SECONDS: "10"
+    volumes:
+      - ./app:/srv/app          # 本機改 code 即時生效
+      - smalldick_dev_data:/data
+    ports:
+      - "21001:8000"
+    command: >
+      gunicorn app.main:app --bind 0.0.0.0:8000
+      --workers 1 --threads 2 --timeout 60 --reload --access-logfile -
+
+volumes:
+  smalldick_dev_data:
