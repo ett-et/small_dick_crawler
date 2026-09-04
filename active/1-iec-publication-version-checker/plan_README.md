@@ -133,13 +133,35 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
   - join `etchai_etchai_network` + 容器名（**拒絕：會讓本服務的故障擴散成全站故障**，見上）
   - 塞進 etchai 的 compose（拒絕：故障域綁一起）
 
+### D8 — 兩顆按鈕：「檢查版本」只讀、「建立／更新基準」才寫
+
+> **新增（2026-09-04，Human 指示）** —— 原設計是**一顆**按鈕：第一次按建立基準、之後每次按都比對**並順手覆寫基準**。Human 要求拆成兩顆。
+
+- 規則：
+  - **`POST /api/baseline`（建立／更新基準）** —— 抓一次、把現況寫成新基準。status `baseline_set`。
+  - **`POST /api/check`（檢查版本）** —— 抓一次、與基準比對，**⛔ 任何情況都不寫基準**；只寫 `last_check.json`（時間 + 結果）。status `no_update` / `updated`。
+  - 沒有基準時按檢查 → status **`no_baseline`**，前端該按鈕同時 disabled。
+- **為什麼這不只是 UI 拆分（實質行為改善）**：單顆按鈕時，偵測到「有更新」之後再按一次就會變成「沒有更新」—— 因為上一次比對已經把基準覆寫掉了，**等於工具自己把警訊抹掉**。拆開後，更新訊號會**一直留著**，直到人按下「更新基準」明示確認（= 「我知道了」）。
+- **status 由 4 值變 5 值**：`baseline_set` / `no_baseline` / `no_update` / `updated` / `error`。issue #1 `## Acceptance` 原寫「四者之一」，已隨本變更同步更新（需求 SSOT 先改、per `issue_backlog_workflow.md` R2 (D) churn guard）。
+- **節流改為 per-action**：兩個動作各自計時（按了檢查不該把更新基準也鎖住）。
+- **⛔ 節流只快取「真的抓過 IEC」的結果**：`no_baseline` 沒有發出任何外部請求 → 不進快取。**本機實測踩到**：建立基準後再按檢查，仍回被快取的 `no_baseline`；已修並補回歸測試。
+- 替代方案：
+  - 維持單顆按鈕（**拒絕**：Human 明示要拆；且單顆會抹掉更新訊號）
+  - 檢查時仍更新基準的 `checked_at`（拒絕：那還是在寫基準檔，破壞「檢查只讀」的單純語意；改用獨立的 `last_check.json`）
+
+### D9 — 差異表逐項攤開，⛔ 不直接印 JSON
+
+- 規則：`under_development` 與 `lifecycle_entries` 這兩個結構化欄位在差異表中 MUST 攤成「子項目」逐列顯示（`開發中版本｜階段  CD → PCC`、`版次歷史｜新增版次 …`），⛔ 不把整包物件 `JSON.stringify` 印出來。
+- 理由：Human 於 2026-09-04 看畫面時指出整包 JSON 難讀。攤開後讀者一眼看得出「實際變的是哪一項」。
+- 替代方案：印整包 JSON（拒絕：讀者要自己 diff 兩坨 JSON）／只顯示欄位名不顯示前後值（拒絕：失去「變成什麼」這個最重要的資訊）
+
 ## Approach
 
 1. **專案骨架**（worktree 內）：`app/`（Flask app + 解析模組 + 模板）、`tests/`、`deploy/nginx/`（per D6）、`Dockerfile`、`.dockerignore`、`docker-compose.yml`（本機）+ `docker-compose.prod.yml`（VPS，per D7 v3）、`requirements.txt` + `requirements-dev.txt`。
 2. **解析模組** `app/iec.py`：`fetch_html(url)` / `extract_blocks(html)` / `normalize(blocks)` / `diff(baseline, current)`。純函式、不碰網路的部分可離線測。
-3. **儲存模組** `app/store.py`：`read_baseline()` / `write_baseline(snapshot)`（atomic）。
-4. **Flask app** `app/main.py`：`GET /` 回頁面（含上次檢查時間）、`POST /api/check` 回 JSON、`GET /healthz` 回 200。
-5. **前端** `app/templates/index.html`：按鈕 + `fetch()` + 結果區塊；無外部 CDN（自帶樣式）。
+3. **儲存模組** `app/store.py`：`read_baseline()` / `write_baseline()` / `read_last_check()` / `write_last_check()`，全走同一支 atomic writer（per D8 兩個檔分開存）。
+4. **Flask app** `app/main.py`：`GET /` 回頁面（含目前基準面板 + 上次檢查）、`POST /api/baseline`、`POST /api/check`、`GET /healthz`（per D8 兩個動作各自 endpoint、各自節流）。
+5. **前端** `app/templates/index.html`：目前基準面板 + 兩顆按鈕 + 可收合的「怎麼判斷有更新」說明 + 結果區塊（差異表逐項攤開，per D9）；無外部 CDN（自帶樣式）。
 6. **測試**：用**存下來的真實 HTML fixture** 測解析與比對；不在測試中連外網。
 7. **本機驗證**：起容器、按按鈕走完四種結果（已建立基準 / 沒有更新 / 有更新 / 檢查失敗）。
 8. **部署**：VPS `git clone` 到 `/opt/small_dick_crawler` → `docker compose -f docker-compose.prod.yml up -d --build` → 兩處確認健康：host `curl http://172.17.0.1:2000/healthz` **且** `docker exec etchai_nginx wget -qO- http://172.17.0.1:2000/healthz`（後者才證明 nginx 連得到，per review r1 #2）。
@@ -216,3 +238,5 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 - 2026-09-04 [struct]：C1 / C2 改寫為真正的未知分岔（原 C1 是 progress milestone、C2 的授權已拍板）。（來源：self-review r1 finding #7）
 - 2026-09-04：Approach step 1 補列 `deploy/nginx/` 與 `docker-compose.prod.yml`；`## Doc Sync Scope` 的 etchai audit 條改寫（D6 v2 後不動 etchai repo，但 conf 仍會 scp 進該 VPS 目錄）。（來源：self-review r2 觀察 2 / 3）
 - 2026-09-04：**port 兩處改號（Human 指定）** —— (a) 本 repo BASE 由表上佔位的 20000 改為 **21000**（feat port 隨之 20001 → **21001**）；(b) VPS docker publish port 由 20080 改為 **2000**。⛔ D7 的**綁定位址（`172.17.0.1`）與 IP 字面值 proxy_pass 的理由與結論一字未變**，只換數字。VPS `ss -tlnp` + 本機 `lsof` 實查 2000 / 21000 / 21001 皆空。`project_maker#375` 需同步改登錄值。（來源：Human 指示 2026-09-04）
+- 2026-09-04：**新增 D8**（兩顆按鈕：檢查只讀、建立／更新基準才寫）+ **D9**（差異表逐項攤開、不印 JSON）。D8 不只是 UI 拆分 —— 單顆按鈕會在偵測到更新後把基準覆寫掉、**自己抹掉警訊**；拆開後更新訊號留到人明示確認為止。status 由 4 值變 5 值、節流改 per-action。（來源：Human 指示 2026-09-04 + 看畫面回饋）
+- 2026-09-04：修節流快取 bug —— `no_baseline` 沒發出外部請求卻被快取，導致「建立基準後再按檢查仍回 no_baseline」。改為只快取真的抓過的結果，並補回歸測試。（來源：本機實測）

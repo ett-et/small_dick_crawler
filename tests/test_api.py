@@ -15,8 +15,7 @@ HTML = FIXTURE.read_text(encoding="utf-8")
 def env(tmp_path, monkeypatch):
     """每個測試一份乾淨的 data dir + 歸零的節流狀態。"""
     monkeypatch.setenv("SMALLDICK_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(main, "_last_fetch_at", 0.0, raising=False)
-    monkeypatch.setattr(main, "_last_result", None, raising=False)
+    monkeypatch.setattr(main, "_throttle", {}, raising=False)
     # THROTTLE_SECONDS 是 import 時從 env 讀進來的 module 常數 —— 測試必須顯式釘住，
     # 否則跑測試的 shell 若剛好 export 了 SMALLDICK_THROTTLE_SECONDS=0，節流測試會假性失敗。
     monkeypatch.setattr(main, "THROTTLE_SECONDS", 10, raising=False)
@@ -36,13 +35,29 @@ def stub_fail(monkeypatch, exc):
     monkeypatch.setattr(iec, "fetch_html", boom)
 
 
-def test_index_renders_button(env):
+def test_index_renders_two_buttons_and_explanation(env):
     client, _, _ = env
     resp = client.get("/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "check new" in body
+    assert "檢查版本" in body
+    assert "建立基準" in body
+    assert "怎麼判斷「有更新」？" in body, "頁面必須說明判斷方式"
     assert "publication/85813" in body
+
+
+def test_check_button_disabled_without_baseline(env):
+    client, _, _ = env
+    body = client.get("/").get_data(as_text=True)
+    assert 'id="btn-check"' in body and "disabled" in body
+
+
+def test_check_without_baseline_returns_no_baseline(env):
+    client, data_dir, mp = env
+    stub_ok(mp)
+    d = client.post("/api/check").get_json()
+    assert d["status"] == "no_baseline"
+    assert store.read_baseline(data_dir) is None, "檢查⛔不得建立基準"
 
 
 def test_healthz(env):
@@ -50,33 +65,66 @@ def test_healthz(env):
     assert client.get("/healthz").status_code == 200
 
 
-def test_first_check_creates_baseline(env):
+def test_set_baseline_creates_it(env):
     client, data_dir, mp = env
     stub_ok(mp)
-    d = client.post("/api/check").get_json()
-    assert d["status"] == "baseline_created"
-    assert d["changes"] == []
+    d = client.post("/api/baseline").get_json()
+    assert d["status"] == "baseline_set"
+    assert d["had_previous"] is False
     assert d["snapshot"]["current_edition"] == "4.0"
-    assert store.read_baseline(data_dir) is not None
+    saved = store.read_baseline(data_dir)
+    assert saved is not None and saved["established_at"]
 
 
-def test_second_check_reports_no_update(env):
+def test_check_after_baseline_reports_no_update(env):
     client, _, mp = env
     stub_ok(mp)
-    client.post("/api/check")
-    mp.setattr(main, "_last_fetch_at", 0.0)  # 略過節流，測「第二次真的去抓」
-    d = client.post("/api/check").get_json()
+    client.post("/api/baseline")
+    d = client.post("/api/check").get_json()  # 不同動作、各自節流
     assert d["status"] == "no_update"
     assert d["changes"] == []
+
+
+def test_check_never_overwrites_baseline(env):
+    """D8 核心：偵測到更新後再檢查一次，仍然是「有更新」（訊號不會被自己抹掉）。"""
+    client, data_dir, mp = env
+    stub_ok(mp)
+    client.post("/api/baseline")
+    before = json.dumps(store.read_baseline(data_dir), sort_keys=True)
+
+    stub_ok(mp, HTML.replace('"edition":"4.0"', '"edition":"9.9"'))
+    first = client.post("/api/check").get_json()
+    assert first["status"] == "updated"
+
+    mp.setattr(main, "_throttle", {})
+    second = client.post("/api/check").get_json()
+    assert second["status"] == "updated", "檢查不寫基準 → 更新訊號必須留著"
+    assert json.dumps(store.read_baseline(data_dir), sort_keys=True) == before
+
+
+def test_set_baseline_acknowledges_the_update(env):
+    """按了更新基準之後，同一個變化就不再算「有更新」。"""
+    client, _, mp = env
+    stub_ok(mp)
+    client.post("/api/baseline")
+
+    stub_ok(mp, HTML.replace('"edition":"4.0"', '"edition":"9.9"'))
+    assert client.post("/api/check").get_json()["status"] == "updated"
+
+    mp.setattr(main, "_throttle", {})
+    ack = client.post("/api/baseline").get_json()
+    assert ack["status"] == "baseline_set" and ack["had_previous"] is True and ack["changes"]
+
+    mp.setattr(main, "_throttle", {})
+    assert client.post("/api/check").get_json()["status"] == "no_update"
 
 
 def test_changed_page_reports_updated_with_before_after(env):
     client, _, mp = env
     stub_ok(mp)
-    client.post("/api/check")
+    client.post("/api/baseline")
 
     stub_ok(mp, HTML.replace('"edition":"4.0"', '"edition":"9.9"'))
-    mp.setattr(main, "_last_fetch_at", 0.0)
     d = client.post("/api/check").get_json()
 
     assert d["status"] == "updated"
@@ -88,12 +136,12 @@ def test_changed_page_reports_updated_with_before_after(env):
 def test_error_does_not_overwrite_baseline(env):
     client, data_dir, mp = env
     stub_ok(mp)
-    client.post("/api/check")
+    client.post("/api/baseline")
     before = json.dumps(store.read_baseline(data_dir), sort_keys=True)
 
     stub_fail(mp, iec.FetchError("連線逾時"))
-    mp.setattr(main, "_last_fetch_at", 0.0)
-    d = client.post("/api/check").get_json()
+    mp.setattr(main, "_throttle", {})
+    d = client.post("/api/baseline").get_json()
 
     assert d["status"] == "error"
     assert "逾時" in d["message"]
@@ -104,11 +152,10 @@ def test_error_does_not_overwrite_baseline(env):
 def test_parse_error_is_not_silently_no_update(env):
     client, data_dir, mp = env
     stub_ok(mp)
-    client.post("/api/check")
+    client.post("/api/baseline")
     before = json.dumps(store.read_baseline(data_dir), sort_keys=True)
 
     stub_ok(mp, "<html>目標頁面改版了</html>")
-    mp.setattr(main, "_last_fetch_at", 0.0)
     d = client.post("/api/check").get_json()
 
     assert d["status"] == "error"
@@ -128,14 +175,50 @@ def test_throttle(env):
 
     mp.setattr(iec, "fetch_html", counting)
 
-    first = client.post("/api/check").get_json()
-    second = client.post("/api/check").get_json()
+    first = client.post("/api/baseline").get_json()
+    second = client.post("/api/baseline").get_json()
 
     assert calls["n"] == 1, "節流期間不得再對 IEC 發請求"
     assert second["throttled"] is True
     assert second["status"] == first["status"]
-    assert second["status"] in {"baseline_created", "no_update", "updated", "error"}, \
-        "節流不是第五種 status"
+    assert second["status"] in {"baseline_set", "no_baseline", "no_update", "updated", "error"}, \
+        "節流不是額外的 status"
+
+
+def test_no_baseline_is_not_cached_by_throttle(env):
+    """回歸：no_baseline 沒有對外發請求 → ⛔ 不得被節流快取。
+
+    2026-09-04 本機實測踩到：建立基準後再按檢查，仍回被快取的 no_baseline。
+    """
+    client, _, mp = env
+    stub_ok(mp)
+    assert client.post("/api/check").get_json()["status"] == "no_baseline"
+    client.post("/api/baseline")
+    d = client.post("/api/check").get_json()   # ⛔ 不重設節流
+    assert d["status"] == "no_update", "建立基準後的檢查不得回到被快取的 no_baseline"
+    assert d.get("throttled") is False
+
+
+def test_no_baseline_response_has_no_internal_flag(env):
+    client, _, mp = env
+    stub_ok(mp)
+    assert "_fetched" not in client.post("/api/check").get_json()
+
+
+def test_throttle_is_per_action(env):
+    """按了「更新基準」不該把「檢查版本」也一起鎖住。"""
+    client, _, mp = env
+    calls = {"n": 0}
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return HTML
+
+    mp.setattr(iec, "fetch_html", counting)
+    client.post("/api/baseline")
+    d = client.post("/api/check").get_json()
+    assert calls["n"] == 2, "兩個動作各自節流"
+    assert d.get("throttled") is False
 
 
 def test_baseline_survives_missing_file(tmp_path):

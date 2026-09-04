@@ -8,11 +8,13 @@
   :root {
     --bg: #f7f7f8; --card: #fff; --fg: #1c1c1e; --muted: #6b6b70;
     --line: #e3e3e6; --accent: #0b5fff; --ok: #1a7f37; --warn: #9a6700; --err: #b42318;
+    --soft: #f0f1f4;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #16171a; --card: #1f2024; --fg: #f2f2f4; --muted: #a0a0a8;
       --line: #33343a; --accent: #6c9bff; --ok: #4ac26b; --warn: #d4a72c; --err: #ff7b72;
+      --soft: #26272c;
     }
   }
   * { box-sizing: border-box; }
@@ -22,32 +24,44 @@
   }
   .wrap { max-width: 46rem; margin: 0 auto; }
   h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1rem; margin: 0 0 .75rem; color: var(--muted); font-weight: 600; }
   .target { color: var(--muted); font-size: .9rem; margin-bottom: 1.5rem; }
   .target a { color: var(--accent); }
   .card {
     background: var(--card); border: 1px solid var(--line); border-radius: 12px;
     padding: 1.25rem; margin-bottom: 1rem;
   }
+  .btns { display: flex; gap: .75rem; flex-wrap: wrap; }
   button {
-    font: inherit; font-weight: 600; padding: .7rem 1.6rem; border-radius: 8px;
-    border: 0; background: var(--accent); color: #fff; cursor: pointer;
+    font: inherit; font-weight: 600; padding: .7rem 1.4rem; border-radius: 8px;
+    border: 1px solid transparent; cursor: pointer;
   }
-  button:disabled { opacity: .55; cursor: progress; }
-  .hint { color: var(--muted); font-size: .85rem; margin-top: .6rem; }
-  .verdict { font-size: 1.15rem; font-weight: 700; margin: 0 0 .75rem; }
+  button.primary { background: var(--accent); color: #fff; }
+  button.secondary { background: transparent; color: var(--fg); border-color: var(--line); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: .7rem; }
+  .verdict { font-size: 1.15rem; font-weight: 700; margin: 0 0 .5rem; }
   .verdict.ok { color: var(--ok); }
   .verdict.upd { color: var(--warn); }
   .verdict.err { color: var(--err); }
+  .verdict.neutral { color: var(--fg); }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
   dt { color: var(--muted); }
   dd { margin: 0; }
   table { width: 100%; border-collapse: collapse; margin-top: .75rem; font-size: .9rem; }
-  th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { color: var(--muted); font-weight: 600; }
   th:first-child, td:first-child { white-space: nowrap; width: 1%; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
+  .before { color: var(--muted); }
+  .after { font-weight: 600; }
   .scroll { overflow-x: auto; }
   .hidden { display: none; }
+  details.how { background: var(--soft); border-radius: 8px; padding: .6rem .9rem; margin-top: .9rem; font-size: .88rem; }
+  details.how summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+  details.how ul { margin: .6rem 0 0; padding-left: 1.2rem; }
+  details.how li { margin-bottom: .35rem; }
+  .empty { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -58,43 +72,129 @@
     目標：<a href="{{ source_url }}" target="_blank" rel="noopener">IEC 62368-1:2023 RLV（publication 85813）</a>
   </p>
 
+  <!-- ① 目前基準 -->
   <div class="card">
-    <button id="btn" type="button">check new</button>
-    <div class="hint" id="lastrun">
-      {% if baseline and baseline.checked_at %}
-        上次檢查：{{ baseline.checked_at }}
-        {% if baseline.current_edition %}
-          ・當時版次 Edition {{ baseline.current_edition }}（{{ baseline.current_publication_date }}）
-        {% endif %}
+    <h2>目前的基準</h2>
+    <div id="baselinebox">
+      {% if baseline %}
+        <dl>
+          <dt>版次</dt><dd>Edition {{ baseline.current_edition }}（{{ baseline.current_publication_date }}）</dd>
+          <dt>標準編號</dt><dd>{{ baseline.current_reference }}</dd>
+          <dt>開發中</dt>
+          <dd>
+            {% if baseline.under_development %}
+              {{ baseline.under_development.reference }} ・ stage {{ baseline.under_development.stage }}
+              ・ {{ baseline.under_development.status }} ・ 預計 {{ baseline.under_development.forecast_pub_date }}
+            {% else %}
+              目前沒有開發中的版本
+            {% endif %}
+          </dd>
+          <dt>建立時間</dt><dd>{{ baseline.established_at or baseline.checked_at }}</dd>
+        </dl>
       {% else %}
-        還沒有任何檢查紀錄 —— 第一次按下會建立基準。
+        <p class="empty">還沒有建立基準 —— 請先按下方的「建立基準」。</p>
+      {% endif %}
+    </div>
+    <div class="hint" id="lastcheck">
+      {% if last_check %}
+        上次檢查：{{ last_check.checked_at }}（結果：{{ last_check.status }}）
+      {% else %}
+        還沒有做過任何檢查。
       {% endif %}
     </div>
   </div>
 
+  <!-- ② 動作 -->
+  <div class="card">
+    <div class="btns">
+      <button id="btn-check" class="primary" type="button" {% if not baseline %}disabled{% endif %}>檢查版本</button>
+      <button id="btn-baseline" class="secondary" type="button">{% if baseline %}更新基準{% else %}建立基準{% endif %}</button>
+    </div>
+    <div class="hint">
+      <strong>檢查版本</strong>＝拿現在的 IEC 頁面跟基準比，<strong>不會動基準</strong>。<br>
+      <strong>{% if baseline %}更新基準{% else %}建立基準{% endif %}</strong>＝把現在的狀態記成新的基準（等於「我知道了」）。
+    </div>
+
+    <details class="how">
+      <summary>怎麼判斷「有更新」？</summary>
+      <p style="margin:.6rem 0 0">
+        每次都去抓 IEC 那一頁內嵌的版本資料，跟基準<strong>逐欄比對</strong>。
+        以下任何一項跟基準不一樣，就算「有更新」：
+      </p>
+      <ul>
+        <li><strong>目前版次變了</strong> —— Edition 編號或發布日期改變（例：4.0 → 5.0）</li>
+        <li><strong>冒出新的版次</strong> —— 版次歷史多了一筆，或既有某筆的狀態改變（例：PUBLISHED → REVISED）</li>
+        <li><strong>開發中的版本動了</strong> —— 修訂案的編號 / 階段（stage）/ 狀態 / 預計發布日改變，
+            或從「有」變成「沒有」（代表它發布了或被撤銷）</li>
+      </ul>
+      <p style="margin:.6rem 0 0">
+        比對<strong>不看檢查時間</strong>（那個每次都不同，看了會永遠說有更新）。
+        抓不到頁面或解析不出資料時，一律回報<strong>「檢查失敗」</strong>，
+        <strong>不會</strong>誤報成「沒有更新」。
+      </p>
+    </details>
+  </div>
+
+  <!-- ③ 結果 -->
   <div class="card hidden" id="result"></div>
 
 </div>
 
 <script>
-const btn = document.getElementById('btn');
+const btnCheck = document.getElementById('btn-check');
+const btnBaseline = document.getElementById('btn-baseline');
 const box = document.getElementById('result');
 
-function esc(v) {
-  if (v === null || v === undefined) return '<span style="color:var(--muted)">（無）</span>';
-  const s = (typeof v === 'object') ? JSON.stringify(v, null, 1) : String(v);
-  return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function esc(s) {
+  return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function val(v) {
+  if (v === null || v === undefined || v === '') return '<span class="empty">（無）</span>';
+  return esc(v);
+}
+
+// 把一個欄位的前後值攤成「子項目」清單，避免整包 JSON 直接印出來
+function explode(field, before, after) {
+  if (field === 'under_development') {
+    const keys = { reference: '編號', edition: '版次', stage: '階段', status: '狀態', forecast_pub_date: '預計發布' };
+    const b = before || {}, a = after || {};
+    const rows = [];
+    for (const k of Object.keys(keys)) {
+      if (JSON.stringify(b[k] ?? null) !== JSON.stringify(a[k] ?? null)) {
+        rows.push([keys[k], b[k], a[k]]);
+      }
+    }
+    if (!rows.length) rows.push(['整包', before ? '有' : '沒有', after ? '有' : '沒有']);
+    return rows;
+  }
+  if (field === 'lifecycle_entries') {
+    const key = e => `${e.key || ''} ${e.reference || ''}`;
+    const b = new Map((before || []).map(e => [key(e), e]));
+    const a = new Map((after || []).map(e => [key(e), e]));
+    const rows = [];
+    for (const [k, e] of a) if (!b.has(k)) rows.push(['新增版次', null, `${e.reference}（Edition ${e.edition}、${e.publication_date}）`]);
+    for (const [k, e] of b) if (!a.has(k)) rows.push(['移除版次', `${e.reference}（Edition ${e.edition}）`, null]);
+    for (const [k, e] of a) {
+      const o = b.get(k);
+      if (o && o.status !== e.status) rows.push([`${e.reference} 狀態`, o.status, e.status]);
+    }
+    if (!rows.length) rows.push(['版次歷史', '（內容有變動）', '（內容有變動）']);
+    return rows;
+  }
+  return [[null, before, after]];
 }
 
 function render(d) {
-  const cls = d.status === 'updated' ? 'upd' : (d.status === 'error' ? 'err' : 'ok');
-  const icon = { updated: '🔔', error: '⚠️', no_update: '✅', baseline_created: '📌' }[d.status] || '';
-  const label = {
-    updated: '有更新', error: '檢查失敗',
-    no_update: '沒有更新', baseline_created: '已建立基準'
-  }[d.status] || d.status;
+  const meta = {
+    updated:         { cls: 'upd',     icon: '🔔', label: '有更新' },
+    no_update:       { cls: 'ok',      icon: '✅', label: '沒有更新' },
+    baseline_set:    { cls: 'neutral', icon: '📌', label: '基準已設定' },
+    no_baseline:     { cls: 'neutral', icon: 'ℹ️', label: '還沒有基準' },
+    error:           { cls: 'err',     icon: '⚠️', label: '檢查失敗' },
+  }[d.status] || { cls: 'neutral', icon: '', label: d.status };
 
-  let h = `<p class="verdict ${cls}">${icon} ${label}</p>`;
+  let h = `<p class="verdict ${meta.cls}">${meta.icon} ${meta.label}</p>`;
   h += `<p>${esc(d.message || '')}</p>`;
 
   if (d.throttled) {
@@ -104,11 +204,10 @@ function render(d) {
   const s = d.snapshot;
   if (s) {
     h += '<dl>';
-    h += `<dt>目前版次</dt><dd>Edition ${esc(s.current_edition)}（${esc(s.current_publication_date)}）</dd>`;
-    h += `<dt>標準編號</dt><dd>${esc(s.current_reference)}</dd>`;
+    h += `<dt>頁面現況</dt><dd>Edition ${val(s.current_edition)}（${val(s.current_publication_date)}）・ ${val(s.current_reference)}</dd>`;
     if (s.under_development) {
       const u = s.under_development;
-      h += `<dt>開發中</dt><dd>${esc(u.reference)} ・ stage ${esc(u.stage)} ・ ${esc(u.status)} ・ 預計 ${esc(u.forecast_pub_date)}</dd>`;
+      h += `<dt>開發中</dt><dd>${val(u.reference)} ・ stage ${val(u.stage)} ・ ${val(u.status)} ・ 預計 ${val(u.forecast_pub_date)}</dd>`;
     } else {
       h += '<dt>開發中</dt><dd>目前沒有開發中的版本</dd>';
     }
@@ -116,35 +215,61 @@ function render(d) {
   }
 
   if (d.changes && d.changes.length) {
-    h += '<div class="scroll"><table><thead><tr><th>欄位</th><th>上次</th><th>這次</th></tr></thead><tbody>';
+    h += '<div class="scroll"><table><thead><tr><th>變動的地方</th><th>基準</th><th>現在</th></tr></thead><tbody>';
     for (const c of d.changes) {
-      h += `<tr><td>${esc(c.label)}</td><td><code>${esc(c.before)}</code></td><td><code>${esc(c.after)}</code></td></tr>`;
+      for (const [sub, before, after] of explode(c.field, c.before, c.after)) {
+        const name = sub ? `${esc(c.label)}｜${esc(sub)}` : esc(c.label);
+        h += `<tr><td>${name}</td><td class="before"><code>${val(before)}</code></td><td class="after"><code>${val(after)}</code></td></tr>`;
+      }
     }
     h += '</tbody></table></div>';
   }
 
-  h += `<p class="hint">檢查時間：${esc(d.checked_at)}`;
-  if (d.previous_checked_at) h += `　／　上次：${esc(d.previous_checked_at)}`;
+  h += `<p class="hint">檢查時間：${val(d.checked_at)}`;
+  if (d.baseline_established_at) h += `　／　基準建立於：${esc(d.baseline_established_at)}`;
   h += '</p>';
 
   box.innerHTML = h;
   box.classList.remove('hidden');
 }
 
-btn.addEventListener('click', async () => {
-  btn.disabled = true;
+async function run(btn, url, busyText) {
+  const buttons = [btnCheck, btnBaseline];
   const original = btn.textContent;
-  btn.textContent = '檢查中…';
+  buttons.forEach(b => b.disabled = true);
+  btn.textContent = busyText;
   try {
-    const r = await fetch('/api/check', { method: 'POST' });
-    render(await r.json());
+    const r = await fetch(url, { method: 'POST' });
+    const d = await r.json();
+    render(d);
+    // 基準或檢查紀錄變了 → 重新載入上方面板（維持單一真相來源，不在前端另存一份）
+    if (d.status === 'baseline_set' || d.status === 'updated' || d.status === 'no_update') {
+      refreshPanel();
+    }
   } catch (e) {
     render({ status: 'error', message: '無法連線到本站的檢查服務：' + e, checked_at: '' });
   } finally {
-    btn.disabled = false;
     btn.textContent = original;
+    buttons.forEach(b => b.disabled = false);
+    btnCheck.disabled = btnCheck.dataset.nobaseline === '1';
   }
-});
+}
+
+async function refreshPanel() {
+  try {
+    const html = await (await fetch(location.pathname, { headers: { 'X-Panel': '1' } })).text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    document.getElementById('baselinebox').innerHTML = doc.getElementById('baselinebox').innerHTML;
+    document.getElementById('lastcheck').innerHTML = doc.getElementById('lastcheck').innerHTML;
+    btnCheck.dataset.nobaseline = doc.getElementById('btn-check').hasAttribute('disabled') ? '1' : '0';
+    btnCheck.disabled = btnCheck.dataset.nobaseline === '1';
+    btnBaseline.textContent = doc.getElementById('btn-baseline').textContent.trim();
+  } catch (e) { /* 面板刷新失敗不影響結果顯示 */ }
+}
+
+btnCheck.dataset.nobaseline = btnCheck.disabled ? '1' : '0';
+btnCheck.addEventListener('click', () => run(btnCheck, '/api/check', '檢查中…'));
+btnBaseline.addEventListener('click', () => run(btnBaseline, '/api/baseline', '抓取中…'));
 </script>
 </body>
 </html>
