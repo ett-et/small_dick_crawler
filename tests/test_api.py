@@ -185,6 +185,59 @@ def test_throttle(env):
         "節流不是額外的 status"
 
 
+def test_actions_do_not_block_each_other(env):
+    """回歸：一個動作在抓取途中，⛔ 不得卡住另一個動作（含只讀快取的那條路）。
+
+    code review 2026-09-04 抓到：原本 `_throttled` 在持有**全域**鎖的情況下呼叫
+    `fn()`（內含最長 30 秒的對外請求）→ 另一條 thread 連讀快取都要等 30 秒。
+    """
+    import threading
+
+    client, _, mp = env
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow(*a, **k):
+        started.set()
+        release.wait(5)
+        return HTML
+
+    mp.setattr(iec, "fetch_html", slow)
+
+    # 先建好基準（用一次 slow，但立刻放行）
+    release.set()
+    client.post("/api/baseline")
+    release.clear()
+    started.clear()
+
+    box = {}
+
+    def hold_check():
+        box["check"] = client.post("/api/check").get_json()
+
+    t = threading.Thread(target=hold_check, daemon=True)
+    t.start()
+    assert started.wait(3), "check 應該已經進到抓取階段"
+
+    # check 正卡在抓取中 —— baseline 這個動作 MUST 不受影響
+    done = threading.Event()
+
+    def other():
+        box["baseline"] = client.post("/api/baseline").get_json()
+        done.set()
+
+    t2 = threading.Thread(target=other, daemon=True)
+    t2.start()
+    hit_cache = done.wait(2)   # 有快取 → 應該立刻回，⛔ 不該被 check 的鎖擋住
+
+    release.set()
+    t.join(5)
+    t2.join(5)
+
+    assert hit_cache, "另一個動作被卡住了 —— per-key 鎖沒生效"
+    assert box["baseline"]["throttled"] is True
+
+
 def test_no_baseline_is_not_cached_by_throttle(env):
     """回歸：no_baseline 沒有對外發請求 → ⛔ 不得被節流快取。
 

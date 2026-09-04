@@ -23,9 +23,22 @@ from . import iec, store
 THROTTLE_SECONDS = int(os.environ.get("SMALLDICK_THROTTLE_SECONDS", "10"))
 
 # 節流狀態。單 worker + 少量執行緒 → 程序內狀態即足夠（plan D5）。
-# 兩個動作各自計時：按了「檢查」不該把「更新基準」也一起鎖住。
-_lock = threading.Lock()
+# 兩個動作各自計時、且各自一把鎖：按了「檢查」不該把「更新基準」也一起鎖住。
+#
+# ⛔ 為什麼不是一把全域鎖（code review 2026-09-04 抓到）：
+# `fn()` 內含最長 30 秒的對外請求。若在持有全域鎖的情況下呼叫它，
+# gunicorn 的另一條 thread 連「讀快取」都會被卡住整整 30 秒 ——
+# 兩個動作互相癱瘓、連 throttled 的快速回應都拿不到。
+# 改成 per-key 鎖：同一個動作併發 → 後到的等前一個做完拿快取（正確、不重複打 IEC）；
+# 不同動作 → 互不阻擋。
+_registry_lock = threading.Lock()
+_locks: dict[str, threading.Lock] = {}
 _throttle: dict[str, dict] = {}
+
+
+def _lock_for(key: str) -> threading.Lock:
+    with _registry_lock:
+        return _locks.setdefault(key, threading.Lock())
 
 
 def _data_dir() -> Path | None:
@@ -72,7 +85,7 @@ def _throttled(key: str, fn):
     仍回被快取的 no_baseline。）
     """
     global _throttle
-    with _lock:
+    with _lock_for(key):
         entry = _throttle.get(key)
         if entry is not None:
             elapsed = time.monotonic() - entry["at"]

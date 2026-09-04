@@ -194,7 +194,9 @@ function render(d) {
     error:           { cls: 'err',     icon: '⚠️', label: '檢查失敗' },
   }[d.status] || { cls: 'neutral', icon: '', label: d.status };
 
-  let h = `<p class="verdict ${meta.cls}">${meta.icon} ${meta.label}</p>`;
+  // meta.cls / meta.icon 恆來自上方的字面對照表；meta.label 在 fallback 分支會是
+  // 伺服器回的 status 字串 → 一律 esc() 再輸出（防禦性、不假設來源可信）。
+  let h = `<p class="verdict ${meta.cls}">${meta.icon} ${esc(meta.label)}</p>`;
   h += `<p>${esc(d.message || '')}</p>`;
 
   if (d.throttled) {
