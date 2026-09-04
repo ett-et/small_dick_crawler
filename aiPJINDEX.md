@@ -51,5 +51,5 @@
 
 | 位置 | 內容 |
 |------|---|
-| `active/1-iec-publication-version-checker/` | issue #1，待 UAT |
-| `archived/` | 0 |
+| `active/` | 0（無進行中 plan）|
+| `archived/2026/Q3/1-iec-publication-version-checker/` | issue #1，shipped 2026-09-04 |
