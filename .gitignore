@@ -1,0 +1,19 @@
+# 秘密 / 憑證（紅線：絕不進版控）
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+cookies.txt
+
+# 抓下來的資料 / 產出（紅線：不 commit 原始抓取結果）
+data/
+output/
+downloads/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
