@@ -44,10 +44,10 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 | **conf 的實際慣例** | **各服務放自己 repo 的 `deploy/nginx/`，部署時複製到 conf.d** | `git -C ~/projects/lifetool ls-files` → `deploy/nginx/lifetool{,-temp}.conf` |
 | nginx 容器網路 | `etchai_nginx` 只接 `etchai_etchai_network`（`172.19.0.7`），**不在 default bridge** | VPS `docker inspect etchai_nginx` |
 | upstream 慣例（兩種先例） | `lifetool_web` 走**容器名**（同網路、零 published port）／ `ymes-channel-gateway` 走 **`172.17.0.1:8004`**（publish 在 `0.0.0.0`） | VPS `docker ps` + `/opt/lifetool/docker-compose.prod.yml` + `od_vps_.../docs/network.md` |
-| **實測（本 session 拋棄式探針）** | 容器 publish 在 `172.17.0.1:20080` 時：`etchai_nginx` 容器內**連得到** ✅／host 連得到 ✅／**公網 IP 連不到** ✅（`http=000`） | VPS `docker run --rm -p 172.17.0.1:20080:80` + `docker exec etchai_nginx wget`，測完即移除 |
+| **實測（本 session 拋棄式探針）** | 容器 publish 在 `172.17.0.1:<port>` 時：`etchai_nginx` 容器內**連得到** ✅／host 連得到 ✅／**公網 IP 連不到** ✅（`http=000`） | VPS `docker run --rm -p 172.17.0.1:20080:80` + `docker exec etchai_nginx wget`，測完即移除（探針用 20080、結論與實際採用的 2000 同理，皆為 `172.17.0.1` 綁定）|
 | DNS | Cloudflare；`smalldick` A → `157.230.34.164` 已由 Human 於 2026-09-04 新增（暫「僅限 DNS」） | Human 回報 + `dig` |
 
-**前置依賴**：port BASE 20000 登錄追蹤於 `ett-et/project_maker#375`（未落地前不起 dev/feat port server）。
+**前置依賴**：port BASE **21000** 登錄追蹤於 `ett-et/project_maker#375`（Human 於 2026-09-04 指定用 21000、非表上佔位的 20000）。#375 未落地前先借用該段、不與他人衝突（VPS 與本機皆實查 21000 段空）。
 
 ## Decisions
 
@@ -106,27 +106,30 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 - **既有債（不在本 plan 修）**：`etchai/docker-compose.prod.yml:172` 註明「renew 後需手動 restart nginx」→ 憑證續簽後不會自動生效。屬 etchai 既有狀況，本 plan 只記錄、不處理。
 - **對既有授權的影響**：Human 於 2026-09-04 授權「可以動 etchai nginx」—— 本修正後**用不到該授權**，範圍反而縮小。
 
-### D7 — 容器 publish 在 `172.17.0.1:20080`，nginx 以 **IP 字面值** 反代
+### D7 — 容器 publish 在 `172.17.0.1:2000`，nginx 以 **IP 字面值** 反代
 
+> **v3.1（2026-09-04，Human 指定 port）** —— v3 用 20080，Human 改指定 **2000**；⛔ 綁定位址與 IP 字面值的**理由與結論一字未變**、只換數字。
+>
 > **v3（2026-09-04，經 VPS 實測拍板）** —— v1 寫 `127.0.0.1:20080`（**連不通**）、v2 改 join `etchai_etchai_network` 走容器名（**引入更嚴重的問題**，見下）。v3 為最終規則。
 
-- 規則：本服務用**自己的** `docker-compose.prod.yml`，容器名 `smalldick_web`，publish **`- "172.17.0.1:20080:8000"`**；nginx 以 `proxy_pass http://172.17.0.1:20080` 反代（**IP 字面值、不用 hostname**）。
+- 規則：本服務用**自己的** `docker-compose.prod.yml`，容器名 `smalldick_web`，publish **`- "172.17.0.1:2000:8000"`**；nginx 以 `proxy_pass http://172.17.0.1:2000` 反代（**IP 字面值、不用 hostname**）。
 - **v3 實測證據**（VPS 上起拋棄式 `nginx:alpine` 探針 publish 在 `172.17.0.1:20080`，測完即 `docker rm -f`）：
 
   | 從哪裡連 | 結果 |
   |---|---|
-  | `docker exec etchai_nginx wget http://172.17.0.1:20080/` | ✅ 連得到 |
-  | host `curl http://172.17.0.1:20080/` | ✅ `http=200` |
-  | **公網** `curl http://157.230.34.164:20080/` | ✅ **連不到**（`http=000`）→ 未暴露 |
+  | `docker exec etchai_nginx wget http://172.17.0.1:<port>/` | ✅ 連得到 |
+  | host `curl http://172.17.0.1:<port>/` | ✅ `http=200` |
+  | **公網** `curl http://157.230.34.164:<port>/` | ✅ **連不到**（`http=000`）→ 未暴露 |
 
 - **為什麼不用 v2 的容器名（這是關鍵）**：nginx 對 `upstream`/`proxy_pass` 內的**字面 hostname 在 config parse 時就解析**。若 `smalldick_web` 沒在跑，`etchai_nginx` 會以 `host not found in upstream` **啟動失敗** → **連帶弄掛 etchai / lifetool / ymetc 三個租戶**。這直接違反 issue #1 `## Non-functional`「本工具故障不得影響同機其他服務」。
   - `lifetool.conf` 確實用容器名（既有慣例），但那是**既有的隱性耦合**，不是本服務該照抄的部分 —— 慣例照抄「conf 放自己 repo」（D6）✅，**不照抄「用容器名」** ❌。
   - 走容器名又要免耦合，需 `resolver 127.0.0.11 valid=10s;` + 變數式 `proxy_pass $upstream;`（延遲到 request 時才解析）—— 可行但更複雜，且 IP 字面值已同時滿足所有需求。
 - **IP 字面值的代價（誠實界定）**：`172.17.0.1` 是 docker0 的 gateway 位址，**理論上**可能因 docker 網段設定改變而變動（實務上極穩定，且 `ymetc.com` 已用同一位址跑了數月）。若真變動 → nginx 502，症狀明確、易查；已列入 `## Acceptance` 的健康檢查項。
-- **與 `Port:` line 的關係**：`Port: 20001`（issue #1）是**驗收者本機**跑起來自測用的 port（per `issue_backlog_workflow.md` R2）；`20080` 是 **VPS 上的 publish port**。兩者不同機、不同層、不衝突。
+- **與 `Port:` line 的關係**：`Port: 21001`（issue #1 = BASE 21000 + issue#1）是**驗收者本機**跑起來自測用的 port（per `issue_backlog_workflow.md` R2）；`2000` 是 **VPS 上的 publish port**。兩者不同機、不同層、不衝突 —— VPS publish port **不需要**落在該 repo 的 BASE 段內。
+- **`2000` 是 IANA registered port（cisco-sccp）**：因為只綁 `172.17.0.1`、不綁 `0.0.0.0`，公網掃不到、也不與該主機上任何服務衝突（VPS `ss -tlnp` 實查 2000 / 21000 皆空）。
 - 替代方案：
-  - publish `127.0.0.1:20080`（**拒絕：實測連不通** —— DNAT 只裝 dst=127.0.0.1，容器封包永遠落不到 loopback）
-  - publish `0.0.0.0:20080`（`ymetc` 先例）（拒絕：docker publish 繞過 UFW → 直接對公網敞開）
+  - publish `127.0.0.1:2000`（**拒絕：實測連不通** —— DNAT 只裝 dst=127.0.0.1，容器封包永遠落不到 loopback）
+  - publish `0.0.0.0:2000`（`ymetc` 先例）（拒絕：docker publish 繞過 UFW → 直接對公網敞開）
   - join `etchai_etchai_network` + 容器名（**拒絕：會讓本服務的故障擴散成全站故障**，見上）
   - 塞進 etchai 的 compose（拒絕：故障域綁一起）
 
@@ -139,7 +142,7 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 5. **前端** `app/templates/index.html`：按鈕 + `fetch()` + 結果區塊；無外部 CDN（自帶樣式）。
 6. **測試**：用**存下來的真實 HTML fixture** 測解析與比對；不在測試中連外網。
 7. **本機驗證**：起容器、按按鈕走完四種結果（已建立基準 / 沒有更新 / 有更新 / 檢查失敗）。
-8. **部署**：VPS `git clone` 到 `/opt/small_dick_crawler` → `docker compose -f docker-compose.prod.yml up -d --build` → 兩處確認健康：host `curl http://172.17.0.1:20080/healthz` **且** `docker exec etchai_nginx wget -qO- http://172.17.0.1:20080/healthz`（後者才證明 nginx 連得到，per review r1 #2）。
+8. **部署**：VPS `git clone` 到 `/opt/small_dick_crawler` → `docker compose -f docker-compose.prod.yml up -d --build` → 兩處確認健康：host `curl http://172.17.0.1:2000/healthz` **且** `docker exec etchai_nginx wget -qO- http://172.17.0.1:2000/healthz`（後者才證明 nginx 連得到，per review r1 #2）。
 9. **nginx + 憑證**：本 repo 寫 `deploy/nginx/smalldick-temp.conf`（僅 :80 + ACME）與 `deploy/nginx/smalldick.conf`（:80 轉址 + :443，**兩個 block 都含 acme-challenge location**）→ `scp` temp 版到 `/opt/etchai/nginx/conf.d/` → `docker exec etchai_nginx nginx -t && nginx -s reload` → 於 `/opt/etchai` 跑 `docker compose -f docker-compose.prod.yml run --rm certbot certonly --webroot -w /var/www/certbot -d smalldick.etbiss.com`（憑證落 `/opt/etchai/certbot/conf/live/smalldick.etbiss.com/`）→ 換上正式版 → `nginx -t` → reload。
 10. **收尾**：更新 `aiREAD.md`（執行環境段）+ `aiPJINDEX.md`；`od_vps_.../docs/{services,network}.md` 需同步（跨 repo，於 C3 停下取得授權或開票）。
 
@@ -175,9 +178,9 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 - [auto] the app SHALL NOT 引用任何外部 CDN 資源 — `grep -rE "https?://(cdn|unpkg|jsdelivr|fonts\.googleapis)" app/ | wc -l` 為 0
 - [manual] 本機 `docker compose up` 後、容器 RSS SHALL < 100 MB — `docker stats --no-stream`
 - [auto] WHEN 10 秒內重複 `POST /api/check` THEN the system SHALL NOT 對外發出新請求、且回應 SHALL 帶 `throttled == true` 而 `status` 仍為四值之一 — `pytest tests/test_api.py::test_throttle`
-- [manual] VPS host 上 `curl -s -o /dev/null -w '%{http_code}' http://172.17.0.1:20080/healthz` SHALL 回 `200`
-- [manual] **the nginx container SHALL 連得到 upstream** — `docker exec etchai_nginx wget -qO- http://172.17.0.1:20080/healthz`（⛔ 只驗 host 側會漏掉「nginx 連不到」這個最可能的失敗，per review r1 #2）
-- [manual] the service SHALL NOT 對公網暴露 20080 — `curl -m 5 -o /dev/null -w '%{http_code}' http://157.230.34.164:20080/` 回 `000`
+- [manual] VPS host 上 `curl -s -o /dev/null -w '%{http_code}' http://172.17.0.1:2000/healthz` SHALL 回 `200`
+- [manual] **the nginx container SHALL 連得到 upstream** — `docker exec etchai_nginx wget -qO- http://172.17.0.1:2000/healthz`（⛔ 只驗 host 側會漏掉「nginx 連不到」這個最可能的失敗，per review r1 #2）
+- [manual] the service SHALL NOT 對公網暴露 2000 — `curl -m 5 -o /dev/null -w '%{http_code}' http://157.230.34.164:2000/` 回 `000`
 - [manual] WHEN 憑證簽發完成 THEN `https://smalldick.etbiss.com/healthz` SHALL 回 `200` 且憑證有效 — `curl -sI https://smalldick.etbiss.com/healthz`
 - [manual] the nginx config SHALL 通過語法檢查（保護另外三個租戶）— `docker exec etchai_nginx nginx -t`
 - [uat] Human 照 issue #1 `## UAT Checklist` 10 條於 `https://smalldick.etbiss.com` 逐條驗收
@@ -212,3 +215,4 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 - 2026-09-04：`## Acceptance` 補 6 條（nginx 容器端可達性 / 公網未暴露 / https 端到端 / `nginx -t` / 節流 / host 健康檢查），補上原本驗不到 D7 失效的盲區。（來源：self-review r1 finding #2）
 - 2026-09-04 [struct]：C1 / C2 改寫為真正的未知分岔（原 C1 是 progress milestone、C2 的授權已拍板）。（來源：self-review r1 finding #7）
 - 2026-09-04：Approach step 1 補列 `deploy/nginx/` 與 `docker-compose.prod.yml`；`## Doc Sync Scope` 的 etchai audit 條改寫（D6 v2 後不動 etchai repo，但 conf 仍會 scp 進該 VPS 目錄）。（來源：self-review r2 觀察 2 / 3）
+- 2026-09-04：**port 兩處改號（Human 指定）** —— (a) 本 repo BASE 由表上佔位的 20000 改為 **21000**（feat port 隨之 20001 → **21001**）；(b) VPS docker publish port 由 20080 改為 **2000**。⛔ D7 的**綁定位址（`172.17.0.1`）與 IP 字面值 proxy_pass 的理由與結論一字未變**，只換數字。VPS `ss -tlnp` + 本機 `lsof` 實查 2000 / 21000 / 21001 皆空。`project_maker#375` 需同步改登錄值。（來源：Human 指示 2026-09-04）
