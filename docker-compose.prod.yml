@@ -1,0 +1,28 @@
+# small_dick_crawler production — VPS 157.230.34.164（與 etchai / lifetool / ymetc 共用主機）
+#
+# 反代方式見 plan D7 v3：
+#   - publish 在 172.17.0.1:20080（docker0 gateway）
+#     → etchai_nginx 容器連得到、host 連得到、公網連不到（已實測）
+#   - nginx 用 IP 字面值 proxy_pass，⛔ 不用容器名
+#     理由：nginx 對字面 hostname 在 config parse 時就解析，本容器沒起會讓
+#     etchai_nginx 啟動失敗、連帶弄掛 etchai / lifetool / ymetc 三個租戶。
+#
+# 用法：docker compose -f docker-compose.prod.yml up -d --build
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smalldick_web
+    restart: unless-stopped
+    environment:
+      SMALLDICK_DATA_DIR: /data
+      SMALLDICK_THROTTLE_SECONDS: "10"
+    volumes:
+      - smalldick_data:/data      # 基準檔；容器 rebuild 不掉（plan D3）
+    ports:
+      - "172.17.0.1:20080:8000"   # ⛔ 不要改成 127.0.0.1（nginx 容器連不到）
+                                  # ⛔ 也不要改成 0.0.0.0（會繞過 UFW 對公網敞開）
+
+volumes:
+  smalldick_data:

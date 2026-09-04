@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IEC 版本檢查</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --card: #fff; --fg: #1c1c1e; --muted: #6b6b70;
+    --line: #e3e3e6; --accent: #0b5fff; --ok: #1a7f37; --warn: #9a6700; --err: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a; --card: #1f2024; --fg: #f2f2f4; --muted: #a0a0a8;
+      --line: #33343a; --accent: #6c9bff; --ok: #4ac26b; --warn: #d4a72c; --err: #ff7b72;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1rem; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  .target { color: var(--muted); font-size: .9rem; margin-bottom: 1.5rem; }
+  .target a { color: var(--accent); }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.25rem; margin-bottom: 1rem;
+  }
+  button {
+    font: inherit; font-weight: 600; padding: .7rem 1.6rem; border-radius: 8px;
+    border: 0; background: var(--accent); color: #fff; cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: progress; }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: .6rem; }
+  .verdict { font-size: 1.15rem; font-weight: 700; margin: 0 0 .75rem; }
+  .verdict.ok { color: var(--ok); }
+  .verdict.upd { color: var(--warn); }
+  .verdict.err { color: var(--err); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: .75rem; font-size: .9rem; }
+  th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
+  .scroll { overflow-x: auto; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>IEC 版本檢查</h1>
+  <p class="target">
+    目標：<a href="{{ source_url }}" target="_blank" rel="noopener">IEC 62368-1:2023 RLV（publication 85813）</a>
+  </p>
+
+  <div class="card">
+    <button id="btn" type="button">check new</button>
+    <div class="hint" id="lastrun">
+      {% if baseline and baseline.checked_at %}
+        上次檢查：{{ baseline.checked_at }}
+        {% if baseline.current_edition %}
+          ・當時版次 Edition {{ baseline.current_edition }}（{{ baseline.current_publication_date }}）
+        {% endif %}
+      {% else %}
+        還沒有任何檢查紀錄 —— 第一次按下會建立基準。
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card hidden" id="result"></div>
+
+</div>
+
+<script>
+const btn = document.getElementById('btn');
+const box = document.getElementById('result');
+
+function esc(v) {
+  if (v === null || v === undefined) return '<span style="color:var(--muted)">（無）</span>';
+  const s = (typeof v === 'object') ? JSON.stringify(v, null, 1) : String(v);
+  return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function render(d) {
+  const cls = d.status === 'updated' ? 'upd' : (d.status === 'error' ? 'err' : 'ok');
+  const icon = { updated: '🔔', error: '⚠️', no_update: '✅', baseline_created: '📌' }[d.status] || '';
+  const label = {
+    updated: '有更新', error: '檢查失敗',
+    no_update: '沒有更新', baseline_created: '已建立基準'
+  }[d.status] || d.status;
+
+  let h = `<p class="verdict ${cls}">${icon} ${label}</p>`;
+  h += `<p>${esc(d.message || '')}</p>`;
+
+  if (d.throttled) {
+    h += `<p class="hint">（節流中：${esc(d.throttle_wait_seconds)} 秒內不重複向 IEC 發請求，以上為上次結果）</p>`;
+  }
+
+  const s = d.snapshot;
+  if (s) {
+    h += '<dl>';
+    h += `<dt>目前版次</dt><dd>Edition ${esc(s.current_edition)}（${esc(s.current_publication_date)}）</dd>`;
+    h += `<dt>標準編號</dt><dd>${esc(s.current_reference)}</dd>`;
+    if (s.under_development) {
+      const u = s.under_development;
+      h += `<dt>開發中</dt><dd>${esc(u.reference)} ・ stage ${esc(u.stage)} ・ ${esc(u.status)} ・ 預計 ${esc(u.forecast_pub_date)}</dd>`;
+    } else {
+      h += '<dt>開發中</dt><dd>目前沒有開發中的版本</dd>';
+    }
+    h += '</dl>';
+  }
+
+  if (d.changes && d.changes.length) {
+    h += '<div class="scroll"><table><thead><tr><th>欄位</th><th>上次</th><th>這次</th></tr></thead><tbody>';
+    for (const c of d.changes) {
+      h += `<tr><td>${esc(c.label)}</td><td><code>${esc(c.before)}</code></td><td><code>${esc(c.after)}</code></td></tr>`;
+    }
+    h += '</tbody></table></div>';
+  }
+
+  h += `<p class="hint">檢查時間：${esc(d.checked_at)}`;
+  if (d.previous_checked_at) h += `　／　上次：${esc(d.previous_checked_at)}`;
+  h += '</p>';
+
+  box.innerHTML = h;
+  box.classList.remove('hidden');
+}
+
+btn.addEventListener('click', async () => {
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = '檢查中…';
+  try {
+    const r = await fetch('/api/check', { method: 'POST' });
+    render(await r.json());
+  } catch (e) {
+    render({ status: 'error', message: '無法連線到本站的檢查服務：' + e, checked_at: '' });
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+</script>
+</body>
+</html>

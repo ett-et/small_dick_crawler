@@ -132,7 +132,7 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 
 ## Approach
 
-1. **專案骨架**（worktree 內）：`app/`（Flask app + 解析模組 + 模板）、`tests/`、`Dockerfile`、`docker-compose.yml`、`requirements.txt`。
+1. **專案骨架**（worktree 內）：`app/`（Flask app + 解析模組 + 模板）、`tests/`、`deploy/nginx/`（per D6）、`Dockerfile`、`.dockerignore`、`docker-compose.yml`（本機）+ `docker-compose.prod.yml`（VPS，per D7 v3）、`requirements.txt` + `requirements-dev.txt`。
 2. **解析模組** `app/iec.py`：`fetch_html(url)` / `extract_blocks(html)` / `normalize(blocks)` / `diff(baseline, current)`。純函式、不碰網路的部分可離線測。
 3. **儲存模組** `app/store.py`：`read_baseline()` / `write_baseline(snapshot)`（atomic）。
 4. **Flask app** `app/main.py`：`GET /` 回頁面（含上次檢查時間）、`POST /api/check` 回 JSON、`GET /healthz` 回 200。
@@ -191,7 +191,7 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 
 **Audit only**：
 - `small_dick_crawler/README.md` — 一句話定位不變，確認無需改
-- `ett-et/etchai` `docs/` — 加一份 conf.d 檔是否需在其 deploy 文件提及（預期否，因該 repo 文件未逐一列舉租戶）
+- `ett-et/etchai` `docs/` — **本 plan 不動 etchai repo 任何檔案**（per D6 v2）；但 conf 會 scp 進**該 VPS 的** `/opt/etchai/nginx/conf.d/` → audit「是否需在其 deploy 文件提一句多了一個租戶」（預期否，該 repo 文件未逐一列舉租戶）
 
 **Out of scope** / **Do not touch**：
 - `~/projects/project_maker/standards/*` — port BASE 登錄由 `project_maker#375` 處理，本 plan 不動
@@ -211,3 +211,4 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/1
 - 2026-09-04：D5 明示節流**不是第五種 status**、改用 `throttled` 旗標，並補一條 `[auto]` acceptance。（來源：self-review r1 finding #8）
 - 2026-09-04：`## Acceptance` 補 6 條（nginx 容器端可達性 / 公網未暴露 / https 端到端 / `nginx -t` / 節流 / host 健康檢查），補上原本驗不到 D7 失效的盲區。（來源：self-review r1 finding #2）
 - 2026-09-04 [struct]：C1 / C2 改寫為真正的未知分岔（原 C1 是 progress milestone、C2 的授權已拍板）。（來源：self-review r1 finding #7）
+- 2026-09-04：Approach step 1 補列 `deploy/nginx/` 與 `docker-compose.prod.yml`；`## Doc Sync Scope` 的 etchai audit 條改寫（D6 v2 後不動 etchai repo，但 conf 仍會 scp 進該 VPS 目錄）。（來源：self-review r2 觀察 2 / 3）

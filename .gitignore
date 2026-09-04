@@ -17,3 +17,8 @@ downloads/
 Thumbs.db
 .idea/
 .vscode/
+
+# 本機測試用 venv
+.venv*/
+__pycache__/
+.pytest_cache/
