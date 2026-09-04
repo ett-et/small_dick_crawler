@@ -62,9 +62,11 @@ Bootstrap contract 完整 state machine + primary/fallback 邊界硬規則見
 - 與其他 repo 的關係：**獨立**，目前不被任何 repo 引用、也不引用任何 infra repo 的 code。
 - 只 pointer 母框架 standards（`~/projects/project_maker/standards/*`），不重寫規則。
 
-> **未定（尚未拍板、⛔ 不要當事實引用）**：技術棧（語言 / 爬蟲框架 / 執行方式）、
-> 目標站點、資料落點。這些定案前不寫進本檔（per `behavioral_constraints.md §2.8`
-> —— 沒有 SSOT 就不臆造）。
+**技術棧（per issue #1 / plan D1，2026-09-04 拍板）**：Python 3.12 + Flask + gunicorn，
+單一 Docker 容器；前端零框架、零外部 CDN。解析用 stdlib（brace-matching），⛔ 不用 headless browser。
+
+**已上線服務**：`https://smalldick.etbiss.com` —— IEC publication 85813 版本檢查工具
+（部署在 DigitalOcean VPS `157.230.34.164`，與 etchai / lifetool / ymetc 共用該機的 nginx）。
 
 ## SSOT / 規範來源
 
