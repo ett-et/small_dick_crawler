@@ -17,6 +17,9 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("SMALLDICK_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(main, "_last_fetch_at", 0.0, raising=False)
     monkeypatch.setattr(main, "_last_result", None, raising=False)
+    # THROTTLE_SECONDS 是 import 時從 env 讀進來的 module 常數 —— 測試必須顯式釘住，
+    # 否則跑測試的 shell 若剛好 export 了 SMALLDICK_THROTTLE_SECONDS=0，節流測試會假性失敗。
+    monkeypatch.setattr(main, "THROTTLE_SECONDS", 10, raising=False)
     app = main.create_app()
     app.config.update(TESTING=True)
     return app.test_client(), tmp_path, monkeypatch
@@ -61,7 +64,7 @@ def test_second_check_reports_no_update(env):
     client, _, mp = env
     stub_ok(mp)
     client.post("/api/check")
-    main._last_fetch_at = 0.0  # 略過節流，測「第二次真的去抓」
+    mp.setattr(main, "_last_fetch_at", 0.0)  # 略過節流，測「第二次真的去抓」
     d = client.post("/api/check").get_json()
     assert d["status"] == "no_update"
     assert d["changes"] == []
@@ -73,7 +76,7 @@ def test_changed_page_reports_updated_with_before_after(env):
     client.post("/api/check")
 
     stub_ok(mp, HTML.replace('"edition":"4.0"', '"edition":"9.9"'))
-    main._last_fetch_at = 0.0
+    mp.setattr(main, "_last_fetch_at", 0.0)
     d = client.post("/api/check").get_json()
 
     assert d["status"] == "updated"
@@ -89,7 +92,7 @@ def test_error_does_not_overwrite_baseline(env):
     before = json.dumps(store.read_baseline(data_dir), sort_keys=True)
 
     stub_fail(mp, iec.FetchError("連線逾時"))
-    main._last_fetch_at = 0.0
+    mp.setattr(main, "_last_fetch_at", 0.0)
     d = client.post("/api/check").get_json()
 
     assert d["status"] == "error"
@@ -105,7 +108,7 @@ def test_parse_error_is_not_silently_no_update(env):
     before = json.dumps(store.read_baseline(data_dir), sort_keys=True)
 
     stub_ok(mp, "<html>目標頁面改版了</html>")
-    main._last_fetch_at = 0.0
+    mp.setattr(main, "_last_fetch_at", 0.0)
     d = client.post("/api/check").get_json()
 
     assert d["status"] == "error"
