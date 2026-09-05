@@ -44,8 +44,10 @@ small_dick_crawler/
 ├── aiPJINDEX.md              # 專案索引
 ├── app/                      # Flask app
 │   ├── iec.py                #   抓取 + 解析 + 正規化 + 比對
+│   ├── sources.py            #   檢查來源的唯一定義（名稱 + 連結；樣板與 CSV 共用）
 │   ├── store.py              #   baseline.json / last_check.json 的 atomic 讀寫
-│   ├── main.py               #   GET / + POST /api/baseline + POST /api/check + /healthz
+│   ├── export.py             #   檢查結果 → CSV（stdlib csv、UTF-8 BOM）
+│   ├── main.py               #   GET / + POST /api/baseline + POST /api/check + GET /api/export.csv + /healthz
 │   └── templates/index.html  #   單頁前端（零框架、零 CDN）
 ├── tests/                    # pytest（fixture 離線測、⛔ 不連外網）
 ├── deploy/nginx/             # smalldick.conf + smalldick-temp.conf（部署時複製到 VPS）
@@ -88,12 +90,14 @@ SMALLDICK_DATA_DIR=/tmp/smalldick-data ./.venv/bin/python -m gunicorn app.main:a
 # 本機用 Docker 跑
 docker compose up -d --build          # → http://localhost:21001
 
-# 測試（33 條、不連外網）
+# 測試（59 條、不連外網）
 ./.venv/bin/python -m pytest -q
 ```
 
 ⚠️ **`--workers 1` 是節流正確性的前提**（節流狀態存在程序記憶體內）。改成多 worker 會讓
 每個 worker 各自為政、對 IEC 的請求量變成 N 倍。
+⚠️ **同一條紅線也綁著「下載結果」的匯出快照**（issue #3 D2：存記憶體、⛔ 不落檔）——
+多 worker 會讓「檢查完按鈕該亮」變成擲骰子（請求可能落到沒有該快照的 worker）。
 
 ## 7. 部署
 

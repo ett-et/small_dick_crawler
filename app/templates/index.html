@@ -68,8 +68,10 @@
 <div class="wrap">
 
   <h1>IEC 版本檢查</h1>
+  {# 名稱與連結的唯一定義在 `app/sources.py`（per issue #3 D5）——
+     ⛔ 不在此重打字面量，否則就成了第二份真相（CSV 匯出讀的是同一份）。 #}
   <p class="target">
-    目標：<a href="{{ source_url }}" target="_blank" rel="noopener">IEC 62368-1:2023 RLV（publication 85813）</a>
+    目標：{% for t in targets %}<a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.name }}</a>{% if not loop.last %}、{% endif %}{% endfor %}
   </p>
 
   <!-- ① 目前基準 -->
@@ -109,10 +111,14 @@
     <div class="btns">
       <button id="btn-check" class="primary" type="button" {% if not baseline %}disabled{% endif %}>檢查版本</button>
       <button id="btn-baseline" class="secondary" type="button">{% if baseline %}更新基準{% else %}建立基準{% endif %}</button>
+      {# 亮暗的真相在後端（per issue #3 D1 + plan I3）：⛔ 前端不自行推斷「剛按的是檢查所以該亮」。 #}
+      <button id="btn-download" class="secondary" type="button" {% if not export_ready %}disabled{% endif %}>下載結果</button>
     </div>
     <div class="hint">
       <strong>檢查版本</strong>＝拿現在的 IEC 頁面跟基準比，<strong>不會動基準</strong>。<br>
-      <strong>{% if baseline %}更新基準{% else %}建立基準{% endif %}</strong>＝把現在的狀態記成新的基準（等於「我知道了」）。
+      <strong>{% if baseline %}更新基準{% else %}建立基準{% endif %}</strong>＝把現在的狀態記成新的基準（等於「我知道了」）。<br>
+      <strong>下載結果</strong>＝把<strong>最近一次「檢查版本」</strong>的結果存成 CSV（Excel 開得起來）。
+      跑過檢查才會亮；<strong>重新整理頁面就會變暗</strong>（結果只留在這一次開頁期間，不落檔）。
     </div>
 
     <details class="how">
@@ -143,7 +149,12 @@
 <script>
 const btnCheck = document.getElementById('btn-check');
 const btnBaseline = document.getElementById('btn-baseline');
+const btnDownload = document.getElementById('btn-download');
 const box = document.getElementById('result');
+
+// 下載鈕該不該亮 —— 初值由**後端渲染**決定，之後由每次動作回應的 `export_ready` 更新。
+// ⛔ 前端不自行依 status 推斷（那會變成 D1 規則的第二份實作、必然漂移）。
+let exportReady = !btnDownload.disabled;
 
 function esc(s) {
   return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -239,10 +250,12 @@ async function run(btn, url, busyText) {
   const buttons = [btnCheck, btnBaseline];
   const original = btn.textContent;
   buttons.forEach(b => b.disabled = true);
+  btnDownload.disabled = true;          // 動作進行中先暗掉：結果正要被換掉
   btn.textContent = busyText;
   try {
     const r = await fetch(url, { method: 'POST' });
     const d = await r.json();
+    if (typeof d.export_ready === 'boolean') exportReady = d.export_ready;
     render(d);
     // 基準或檢查紀錄變了 → 重新載入上方面板（維持單一真相來源，不在前端另存一份）
     if (d.status === 'baseline_set' || d.status === 'updated' || d.status === 'no_update') {
@@ -254,6 +267,7 @@ async function run(btn, url, busyText) {
     btn.textContent = original;
     buttons.forEach(b => b.disabled = false);
     btnCheck.disabled = btnCheck.dataset.nobaseline === '1';
+    btnDownload.disabled = !exportReady;
   }
 }
 
@@ -272,6 +286,10 @@ async function refreshPanel() {
 btnCheck.dataset.nobaseline = btnCheck.disabled ? '1' : '0';
 btnCheck.addEventListener('click', () => run(btnCheck, '/api/check', '檢查中…'));
 btnBaseline.addEventListener('click', () => run(btnBaseline, '/api/baseline', '抓取中…'));
+
+// 下載 = 直接導到 endpoint（回應帶 Content-Disposition: attachment → 瀏覽器存檔、頁面不會被換掉）。
+// ⛔ 下載不清除結果 → 同一次頁面內可重複下載（issue #3 D2 丙）。
+btnDownload.addEventListener('click', () => { window.location.href = '/api/export.csv'; });
 </script>
 </body>
 </html>

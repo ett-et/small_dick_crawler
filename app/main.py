@@ -16,9 +16,9 @@ import threading
 import time
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, Response, jsonify, render_template, request
 
-from . import iec, store
+from . import export, iec, sources, store
 
 THROTTLE_SECONDS = int(os.environ.get("SMALLDICK_THROTTLE_SECONDS", "10"))
 
@@ -41,6 +41,35 @@ def _lock_for(key: str) -> threading.Lock:
         return _locks.setdefault(key, threading.Lock())
 
 
+# ── 匯出快照（issue #3 D2）────────────────────────────────────────────────
+#
+# 「最近一次『檢查版本』的結果」，⛔ **完全不落檔** —— 沒有檔案就沒有殘留、沒有累積、
+# 容器重啟自動乾淨。可行的前提是 gunicorn **`--workers 1`**（既有紅線、見 `aiREAD.md §6`）：
+# 單一程序 → 程序內記憶體就是唯一狀態。
+#
+# ⚠️ 這條紅線因此又多綁一個東西：改成多 worker 不只會壞掉節流，**也會壞掉匯出**。
+#
+# 只是整個 dict 的換手（重新綁定 module attribute），⛔ 沒有 read-modify-write，
+# 故不需要額外的鎖。
+_export: dict | None = None
+
+
+def _set_export(result: dict) -> None:
+    """記住這一次的檢查結果供匯出。新的蓋掉舊的 —— 永遠只留一份。"""
+    global _export
+    _export = {
+        "status": result.get("status"),
+        "message": result.get("message"),
+        "snapshot": result.get("snapshot"),
+        "checked_at": result.get("checked_at"),
+    }
+
+
+def _clear_export() -> None:
+    global _export
+    _export = None
+
+
 def _data_dir() -> Path | None:
     raw = os.environ.get("SMALLDICK_DATA_DIR")
     return Path(raw) if raw else None
@@ -56,11 +85,50 @@ def create_app() -> Flask:
     @app.get("/")
     def index():
         data_dir = _data_dir()
+
+        # ⚠️⚠️ 誠實界定：**這裡讓 GET 帶副作用** —— HTTP 語意上 GET 應該是 safe method、
+        # 不改變伺服器狀態，本行明確違反它。
+        #
+        # 這是為了精確實現 issue #3 D2「丙：重整後清空、同一次頁面內可重複下載」付出的代價，
+        # **Human 已知悉並記在 issue #3 `## Decisions` D2 連帶影響裡**，⛔ 不是疏忽。
+        # 替代做法（前端產 session token、後端按 token 存）能保住 GET 純淨，
+        # 但要多一套機制 —— 以本工具的規模不划算。
+        #
+        # `X-Panel: 1` 豁免（plan I2）：既有前端在每次成功動作後會呼叫 `refreshPanel()`
+        # **再打一次 `GET /`** 來刷新上方面板（見 `templates/index.html`）。那是「局部面板刷新」、
+        # ⛔ **不是**「開頁 / 重整」。若不豁免，檢查完的下一個 request 就把匯出清掉，
+        # D1「檢查後按鈕變亮」根本無法成立。
+        if request.headers.get("X-Panel") != "1":
+            _clear_export()
+
         return render_template(
             "index.html",
-            source_url=iec.DEFAULT_URL,
+            targets=sources.SOURCES,
             baseline=store.read_baseline(data_dir),
             last_check=store.read_last_check(data_dir),
+            export_ready=_export is not None,
+        )
+
+    @app.get("/api/export.csv")
+    def export_csv():
+        """下載「最近一次檢查版本」的結果快照（issue #3）。
+
+        ⛔ **本 endpoint 一律不對 IEC 發任何請求**（issue #3 紅線）—— 它只讀程序內的
+        `_export`，連 `store` 都不碰。
+        ⛔ **下載不清除** —— 同一次頁面內可重複下載（D2 丙）。
+        """
+        snapshot = _export
+        if snapshot is None:
+            # 409 而不是 404：這個 endpoint 一直存在，只是**當下沒有可匯出的結果**。
+            # ⛔ 不回 200 + 空檔 —— 靜默失敗違反本 repo「失敗要吵」的一貫紅線。
+            return jsonify({"status": "no_export", "message": "目前沒有可下載的檢查結果 —— 請先按「檢查版本」。"}), 409
+
+        payload = export.to_csv_bytes(export.rows_from_check(snapshot))
+        filename = export.filename_for(snapshot.get("checked_at"))
+        return Response(
+            payload,
+            content_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     @app.post("/api/baseline")
@@ -83,6 +151,10 @@ def _throttled(key: str, fn):
     快取了會說謊 —— 那種狀態會因為使用者按了另一顆按鈕而改變，卻沒有任何
     對外請求需要被節流。（2026-09-04 本機實測踩到：建立基準後再按檢查，
     仍回被快取的 no_baseline。）
+
+    `export_ready`（issue #3 D1）**在這一層即時計算、⛔ 不進快取**：
+    節流會重放 10 秒前的 result dict，若旗標被一起快取，期間有人重整過頁面就會說謊
+    （按鈕亮著、但下載回 409）。與上一段的快取教訓同源。
     """
     global _throttle
     with _lock_for(key):
@@ -93,12 +165,15 @@ def _throttled(key: str, fn):
                 cached = dict(entry["result"])
                 cached["throttled"] = True
                 cached["throttle_wait_seconds"] = round(THROTTLE_SECONDS - elapsed, 1)
+                cached["export_ready"] = _export is not None
                 return jsonify(cached), 200
 
         result = fn()
         if result.pop("_fetched", True):
             _throttle[key] = {"at": time.monotonic(), "result": result}
-        return jsonify(result), 200
+        payload = dict(result)
+        payload["export_ready"] = _export is not None
+        return jsonify(payload), 200
 
 
 def _fetch_snapshot() -> tuple[dict | None, dict | None]:
@@ -127,7 +202,12 @@ def _fetch_snapshot() -> tuple[dict | None, dict | None]:
 
 
 def _run_set_baseline() -> dict:
-    """建立 / 更新基準。抓取或解析失敗 → 不覆寫既有基準。"""
+    """建立 / 更新基準。抓取或解析失敗 → 不覆寫既有基準。
+
+    ⛔ **本函式的任何路徑（含失敗路徑）都不得碰 `_export`**（issue #3 D1）：
+    下載按鈕的語意固定為「匯出**檢查結果**」，只有「檢查版本」讓它亮 ——
+    ⛔ 不擴成「匯出目前狀態」。
+    """
     data_dir = _data_dir()
     snapshot, err = _fetch_snapshot()
     if err:
@@ -159,7 +239,16 @@ def _run_set_baseline() -> dict:
 
 
 def _run_check() -> dict:
-    """檢查版本。⛔ 任何情況都不寫基準；只寫「上次檢查」紀錄。"""
+    """檢查版本。⛔ 任何情況都不寫基準；只寫「上次檢查」紀錄。
+
+    本函式三條返回路徑對匯出快照（issue #3 D1 / D3）的處置：
+
+    | 路徑 | 寫 `_export`？ | 為什麼 |
+    |---|---|---|
+    | `no_baseline` | ❌ | 根本沒發生比對、也沒對 IEC 發過請求 → 屬 issue #3 `## Business Rules`「**沒有可下載的結果**」（plan I4；⛔ 也不清除既有的）|
+    | `error` | ✅ | D3 明文要求失敗也要輸出一列、「最新版次」欄寫失敗原因 |
+    | `updated` / `no_update` | ✅ | 正常的檢查結果 |
+    """
     data_dir = _data_dir()
     baseline = store.read_baseline(data_dir)
 
@@ -174,6 +263,7 @@ def _run_check() -> dict:
 
     snapshot, err = _fetch_snapshot()
     if err:
+        _set_export(err)   # D3：失敗也要能匯出，「最新版次」欄寫失敗原因
         return err
 
     changes = iec.diff(baseline, snapshot)
@@ -200,6 +290,7 @@ def _run_check() -> dict:
         },
         data_dir,
     )
+    _set_export(result)
     return result
 
 
