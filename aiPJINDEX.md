@@ -18,7 +18,7 @@
 | `docker-compose.yml` | 本機開發（port 21001）| ❌ |
 | `docker-compose.prod.yml` | VPS 正式（publish `172.17.0.1:2000`）| ❌ |
 | `requirements.txt` / `requirements-dev.txt` | 相依套件（鎖版本）| ❌ |
-| `active/` | 進行中的 plan（`active/<issue>-<slug>/plan_README.md`）| ❌ |
+| `active/` | 0（無進行中 plan）|
 | `archived/` | 已 ship 的 plan（`archived/YYYY/QN/`）| ❌ |
 | `reviews/` | self-review sidecar（issue #1 plan r1/r2 + code r1、issue #3 r1、issue #4 r1）| ❌ |
 | `docs/` | **業務 SSOT（`ssot/`）+ living spec（`specs/`）+ 地圖層（`*_map.md`）** | ❌ |

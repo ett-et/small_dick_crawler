@@ -5,8 +5,8 @@ created: 2026-09-05
 type: LocalPlan
 upstream: issue #3
 branch: feat/3-export-check-result-excel
-shipped: false
-dev_merged: false
+shipped: true
+dev_merged: true
 ---
 
 # 檢查結果匯出 CSV
@@ -235,3 +235,4 @@ Issue: https://github.com/ett-et/small_dick_crawler/issues/3
   (3) 低 — 「建立／更新基準」對**已存在**匯出快照的處置（不清除）無測試釘住 → 補 `test_baseline_does_not_clear_an_earned_export`。
   （來源：本 session inline 自審；⚠️ 非獨立 reviewer，界定見 sidecar 開頭）
 - 2026-09-05：`## Acceptance` 隨上述補 1 條（公式注入中和）、測試總數條由「33 綠」改為「33 綠 + 總數 59」。
+- 2026-09-05：**shipped** —— Human 於本機 `localhost:21003` 驗收 pass 並授權部署。（來源：Human 2026-09-05）

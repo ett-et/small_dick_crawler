@@ -5,3 +5,4 @@
 | plan | issue | ship 日 |
 |---|---|---|
 | `2026/Q3/1-iec-publication-version-checker/` | #1 | 2026-09-04 |
+| `2026/Q3/3-export-check-result-excel/` | #3 | 2026-09-05 |
