@@ -86,7 +86,7 @@ SMALLDICK_DATA_DIR=/tmp/smalldick-data ./.venv/bin/python -m gunicorn app.main:a
 # 本機用 Docker 跑
 docker compose up -d --build          # → http://localhost:21001
 
-# 測試（56 條、不連外網）
+# 測試（59 條、不連外網）
 ./.venv/bin/python -m pytest -q
 ```
 
