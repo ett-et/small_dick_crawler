@@ -74,8 +74,12 @@ Bootstrap contract 完整 state machine + primary/fallback 邊界硬規則見
 - **Idea / Proposal / Plan lifecycle** — `~/projects/project_maker/standards/idea_proposal_plan_lifecycle.md`
 - **Issue label 狀態機（plan 狀態唯一 SSOT）** — `~/projects/project_maker/standards/issue_backlog_workflow.md §5`
 - **plan 格式** — `~/projects/project_maker/standards/shared_plan_schema.md`
-- 本 repo 目前**無自有業務 SSOT**；有了再落 `docs/ssot/<domain>.md`
-  （per `repo_ssot_layout.md §5`）。
+- **本 repo 的業務 SSOT（規則本體）** — `docs/ssot/`（索引 + 七條 domain 的逐條判定見
+  `docs/ssot/README.md`）。目前兩份：`business_logic.md`（判定 / 基準寫入權 / 失敗紅線 / 外部禮節）、
+  `api_contract.md`（endpoint 動作語意 / `status` 值域 / 回應形狀）。落點契約 per `repo_ssot_layout.md §5`。
+- **現況投影（不是規則）** — `docs/specs/`（living spec）+ 地圖層，per `living_spec_maintenance.md`。
+  ⚠️ **與上一條互補不重疊**：`docs/ssot/` 寫「該怎樣」、`docs/specs/` 寫「現在長怎樣」；
+  單向 pointer `地圖──▶SSOT──▶code`（per `repo_ssot_layout.md §7`）。
 
 ## 紅線
 

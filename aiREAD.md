@@ -22,8 +22,12 @@ IEC publication 85813 的版本檢查頁（issue #1）。
 
 ### Repo-local
 
-- 本 repo 目前**無自有業務 SSOT**。有了再落 `docs/ssot/<domain>.md`
-  （落點契約 canonical = `~/projects/project_maker/standards/repo_ssot_layout.md §5`）。
+- **業務 SSOT（規則本體）** — `docs/ssot/`；索引與七條 domain 的逐條判定見 `docs/ssot/README.md`
+  （落點契約 canonical = `~/projects/project_maker/standards/repo_ssot_layout.md §5`）
+- **現況投影** — `docs/specs/`（living spec）+ 地圖層
+  （canonical = `~/projects/project_maker/standards/living_spec_maintenance.md`）
+- ⚠️ **兩者互補不重疊**：SSOT 寫「該怎樣」、specs / 地圖寫「現在長怎樣」；
+  單向 pointer `地圖──▶SSOT──▶code`（⛔ 不互相追，per `repo_ssot_layout.md §7`）
 
 ### Deploy contract
 
