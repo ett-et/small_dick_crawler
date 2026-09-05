@@ -20,22 +20,24 @@
 | `requirements.txt` / `requirements-dev.txt` | 相依套件（鎖版本）| ❌ |
 | `active/` | 進行中的 plan（`active/<issue>-<slug>/plan_README.md`）| ❌ |
 | `archived/` | 已 ship 的 plan（`archived/YYYY/QN/`）| ❌ |
-| `reviews/` | self-review sidecar（plan r1/r2、code r1）| ❌ |
+| `reviews/` | self-review sidecar（issue #1 plan r1/r2 + code r1、issue #3 r1）| ❌ |
 
 ## 功能模組
 
 | 模組 | 路徑 | 職責 |
 |---|---|---|
-| **IEC 版本檢查工具** | `app/` | 抓 IEC publication 85813 頁面、解析內嵌版本資料、與基準比對、單頁呈現 |
+| **IEC 版本檢查工具** | `app/` | 抓 IEC publication 85813 頁面、解析內嵌版本資料、與基準比對、單頁呈現、檢查結果匯出 CSV |
 
 模組內檔案：
 
 | 檔案 | 職責 |
 |---|---|
 | `app/iec.py` | `fetch_html` / `extract_blocks`（brace-matching 解析內嵌 JSON）/ `normalize` / `diff` |
+| `app/sources.py` | 檢查來源的**唯一一份**定義（名稱 + 連結）—— 樣板與 CSV 共用，⛔ 不各寫一份（issue #3 D5）|
 | `app/store.py` | `baseline.json` + `last_check.json` 的 atomic 讀寫（mkstemp → fsync → os.replace）|
-| `app/main.py` | `GET /`、`POST /api/baseline`（寫基準）、`POST /api/check`（⛔ 不寫基準）、`GET /healthz`；per-action 節流 |
-| `app/templates/index.html` | 單頁前端：基準面板 + 兩顆按鈕 + 判定說明 + 差異表（零框架、零 CDN）|
+| `app/export.py` | 檢查結果 → CSV（stdlib `csv`、UTF-8 BOM、四欄固定順序、一列一來源）；純函式、⛔ 零新相依 |
+| `app/main.py` | `GET /`（順帶清匯出快照）、`POST /api/baseline`（寫基準）、`POST /api/check`（⛔ 不寫基準）、`GET /api/export.csv`（⛔ 不打 IEC）、`GET /healthz`；per-action 節流 |
+| `app/templates/index.html` | 單頁前端：基準面板 + 三顆按鈕 + 判定說明 + 差異表（零框架、零 CDN）|
 
 ## 對外服務
 
@@ -51,5 +53,5 @@
 
 | 位置 | 內容 |
 |------|---|
-| `active/` | 0（無進行中 plan）|
+| `active/3-export-check-result-excel/` | issue #3，檢查結果匯出 CSV（進行中）|
 | `archived/2026/Q3/1-iec-publication-version-checker/` | issue #1，shipped 2026-09-04 |

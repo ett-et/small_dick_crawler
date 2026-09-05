@@ -8,4 +8,4 @@
   （見 `~/projects/project_maker/standards/issue_backlog_workflow.md §5`）
 - ship 後搬到 `archived/YYYY/QN/`（在 dev 上做，per `executor_workflow.md §9`）
 
-目前：無進行中 plan。
+目前：`3-export-check-result-excel`（issue #3 — 檢查結果匯出 CSV）。
