@@ -20,7 +20,8 @@
 | `requirements.txt` / `requirements-dev.txt` | 相依套件（鎖版本）| ❌ |
 | `active/` | 進行中的 plan（`active/<issue>-<slug>/plan_README.md`）| ❌ |
 | `archived/` | 已 ship 的 plan（`archived/YYYY/QN/`）| ❌ |
-| `reviews/` | self-review sidecar（plan r1/r2、code r1）| ❌ |
+| `reviews/` | self-review sidecar（plan / code 各輪）| ❌ |
+| `docs/` | **業務 SSOT（`ssot/`）+ living spec（`specs/`）+ 地圖層（`*_map.md`）** | ❌ |
 
 ## 功能模組
 
@@ -43,9 +44,43 @@
 |---|---|---|
 | `https://smalldick.etbiss.com` | 上線（2026-09-04）| VPS `157.230.34.164`，容器 `smalldick_web`，經該機共用 `etchai_nginx` 反代 |
 
-## 業務 SSOT
+## 業務 SSOT（規則本體 —— 「該怎樣」）
 
-**無** —— 有了再落 `docs/ssot/<domain>.md`（per `repo_ssot_layout.md §5`），並在此加一列。
+落點契約 canonical = `~/projects/project_maker/standards/repo_ssot_layout.md §5`。
+**索引與七條 domain 的逐條判定（含五條「不適用 + 為什麼」）見 [`docs/ssot/README.md`](docs/ssot/README.md)。**
+
+| domain | 檔 | 管什麼 |
+|---|---|---|
+| Business Logic | [`docs/ssot/business_logic.md`](docs/ssot/business_logic.md) | 「有更新」怎麼判、基準（baseline）誰能寫、失敗怎麼算、對目標站點怎麼發請求 |
+| API Contract | [`docs/ssot/api_contract.md`](docs/ssot/api_contract.md) | 兩個動作的讀 / 寫語意、`status` 封閉值域、回應必有欄位、節流以旗標表達 |
+
+其餘五條 domain（RBAC / 營運角色 / 職能 / Access Control / Approval Flow）**判定為不適用**，理由逐條記在 `docs/ssot/README.md`，⛔ 不建空殼檔。
+
+## 地圖層（現況投影 —— 「現在長怎樣」）
+
+canonical = `~/projects/project_maker/standards/living_spec_maintenance.md §8`。
+⚠️ **與上一段互補不重疊**：SSOT 寫規則、地圖寫現況；單向 pointer `地圖──▶SSOT──▶code`（`repo_ssot_layout.md §7`），⛔ 不互相追。
+
+**living spec**：[`docs/specs/iec_version_check.md`](docs/specs/iec_version_check.md)
+
+**13 種視角的逐項判定**（本表為該 ledger 的 canonical 落點；`docs/feature_map.md` pointer 至此、⛔ 不重列）：
+
+| # | 視角 | 結論 | 理由 |
+|---|---|---|---|
+| 1 | Feature Map | **落檔** [`docs/feature_map.md`](docs/feature_map.md) | 只有一個功能，但仍是 registry 入口 + Project Scan 首讀，成本近零 |
+| 2 | UI / Page Map | **落檔** [`docs/ui_map.md`](docs/ui_map.md) | 單頁，但「檢查版本」按鈕的啟用狀態**橫跨三處**協同決定（Jinja 條件 / `dataset` / `refreshPanel`）|
+| 3 | Data Model Map | **落檔** [`docs/data_model_map.md`](docs/data_model_map.md) | 無 ORM ≠ 無資料模型 —— 兩個持久化 JSON 的欄位形狀原本無任何文件記載 |
+| 4 | Validation / Constraint | **不落檔** | 無使用者輸入欄位；唯一約束（對外部回應的驗證）＝ living spec `## Behavior` 主體。N=1 時獨立成檔 = 逐字重寫，撞 `§8 (B)`「地圖只 pointer」|
+| 5 | Permission Map | **不適用** | 無登入 / 帳號 / 角色 / tenant，全 repo 零 auth code。唯一存取事實（基準全站共用、任何訪客可覆寫）記在 `data_model_map.md` |
+| 6 | State Map | **不落檔** | 唯一狀態語意 =「基準有／無 × 與現況一致／不一致」，正是 spec Behavior 主體；5 個 `status` 是**回應分類**不是物件生命週期，已記在 `ui_map.md` |
+| 7 | Flow Map | **落檔** [`docs/flow_map.md`](docs/flow_map.md) | 痛點已實證 —— 節流跨動作快取說謊、全域鎖互相癱瘓，兩個 bug 都是「單檔看都合理、串起來才壞」|
+| 8 | Event Map | **不適用** | 零 signal / 背景任務 / webhook / 通知 / audit log |
+| 9 | Integration Map | **落檔** [`docs/integration_map.md`](docs/integration_map.md) | 唯一外部整合，且是最脆弱的一點（解析對方頁面內嵌 JS 字面量，無版本號、無相容承諾）|
+| 10 | Dependency Map | **恆現算不落檔** | `§8` 表第 10 列明訂；本 repo 現算成本近零 |
+| 11 | Migration / Backfill | **恆現算不落檔** | `§8` 表第 11 列明訂（per #285）；無 `migrations/`。真正的 backfill 面（改 snapshot 欄位 → 既有 baseline 被誤判成有更新）是 per-change 判斷，已在 `data_model_map.md` 末段留註 |
+| 12 | Observability Map | **落檔** [`docs/observability_map.md`](docs/observability_map.md) | 內容薄，但**盲區本身就是有價值的現況** —— 零 log + 失敗回 200 + 不寫紀錄（已開 [#5](https://github.com/ett-et/small_dick_crawler/issues/5)）|
+| 13 | Deployment Map | **落檔** [`docs/deployment_map.md`](docs/deployment_map.md) | 本 repo 價值最高 —— 與另外三個租戶共用 nginx、blast radius 跨 repo、多條「⛔ 不要改成…」的理由不在 code 內 |
+| — | Living-demo（不佔列）| **不適用** | `frontend_governance.md §12` 針對元件化前端；本 repo 前端是 277 行零框架單檔，showcase 會是那一頁的複製品 |
 
 ## Plan 現況
 
